@@ -1,0 +1,847 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <windows.h>
+
+struct Point2 {
+	float x;
+	float y;
+	float z;
+};
+
+const int characters_per_row = 940;
+const int number_of_columns = 270;
+const int number_of_screen_variables = 3;
+
+std::vector<Point2> screen_vertices = { {characters_per_row / 2 - 1,number_of_columns / 2 - 1},{-characters_per_row / 2 + 1,-number_of_columns / 2 + 1},{characters_per_row / 2 - 1,-number_of_columns / 2 + 1},{-characters_per_row / 2 + 1,number_of_columns / 2 + 1} };
+
+std::vector<char> characters = {
+		'.', '-', ':', ',', '!', 'r', 'c', 'z', 's', 'L', 'T', 'v', ')', 'J', '7', '(', 'F', 'i', '{', 'C', '}', 'f', 'I', '3', '1', 't', 'l', 'u', '[', 'n', 'e', 'o', 'Z', '5', 'Y', 'x', 'j', 'y', 'a', ']', '2', 'E', 'S', 'w', 'q', 'k', 'P', '6', 'h', '9', 'd', '4', 'V', 'p', 'O', 'G', 'b', 'U', 'A', 'K', 'X', 'H', 'm', '8', 'R', 'D', '#', '$', 'B', 'g', '0', 'M', 'N', 'W', 'Q', '@'
+};
+
+//RENDERING
+void fill_screen(int screen[characters_per_row * number_of_columns][number_of_screen_variables]) {
+	for (int i = 0; i < characters_per_row * number_of_columns; i++) {
+		screen[i][0] = 1000000;
+		screen[i][1] = 16 * 9;
+		screen[i][2] = 0;
+	}
+}
+
+void add_rotation(float x_rotation, float y_rotation, float& x_co, float& y_co, float& z_co) {
+	float new_x_co = x_co * std::cos(x_rotation) - z_co * std::sin(x_rotation);
+	float new_z_co = x_co * std::sin(x_rotation) + z_co * std::cos(x_rotation);
+	float new_y_co = y_co * std::sin(y_rotation) + new_z_co * std::cos(y_rotation);
+	new_z_co = y_co * std::cos(y_rotation) - new_z_co * std::sin(y_rotation);
+	x_co = new_x_co;
+	y_co = new_y_co;
+	z_co = new_z_co;
+}
+
+void draw_screen(const int screen[characters_per_row * number_of_columns][number_of_screen_variables]) {
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	if (hConsole == INVALID_HANDLE_VALUE) {
+		std::cerr << "Error: Failed to retrieve console handle" << std::endl;
+		return;
+	}
+	CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
+	GetConsoleScreenBufferInfo(hConsole, &bufferInfo);
+
+	if (!GetConsoleScreenBufferInfo(hConsole, &bufferInfo)) {
+		std::cerr << "Error: Unable to retrieve console screen buffer info" << std::endl;
+		Sleep(1000);
+		return;
+	}
+
+	COORD bufferSize = { static_cast<SHORT>(characters_per_row), static_cast<SHORT>(number_of_columns) };
+	COORD bufferCoord = { 0, 0 };
+	SMALL_RECT writeRegion = { 0, 0, bufferSize.X - 1, bufferSize.Y - 1 };
+
+	CHAR_INFO* buffer = new CHAR_INFO[bufferSize.X * bufferSize.Y];
+	if (buffer == nullptr) {
+		std::cerr << "Error: Failed to allocate memory for buffer" << std::endl;
+		return; 
+	}
+	SetConsoleActiveScreenBuffer(hConsole);
+	for (int i = 0; i < characters_per_row * number_of_columns; ++i) {
+		buffer[i].Char.UnicodeChar = static_cast<WCHAR>('t'); 
+		buffer[i].Attributes = bufferInfo.wAttributes;
+	}
+	for (int i = 0; i < (characters_per_row - 1) * (number_of_columns - 1); ++i) {
+		WORD attributes = 0;
+		buffer[i].Char.AsciiChar = static_cast<WCHAR>(characters[min(characters.size(), max(0, screen[i][2]))]);
+		buffer[i].Attributes = 0;
+		attributes = (screen[i][1]);
+		buffer[i].Attributes = attributes;
+	}
+	WriteConsoleOutput(hConsole, buffer, bufferSize, bufferCoord, &writeRegion);
+
+	delete[] buffer;
+}
+
+void update_pixel(int screen[characters_per_row * number_of_columns][number_of_screen_variables], const float& x, const float& y, const float& z, int texture_id) {
+	if (z > 0 && z < screen[max(0, min((characters_per_row)*number_of_columns, characters_per_row * (number_of_columns / 2 + static_cast<int>(y)) + (characters_per_row / 2 + static_cast<int>(x))))][0]) {
+		int index = characters_per_row * (number_of_columns / 2 + static_cast<int>(y)) + (characters_per_row / 2 + x);
+		screen[index][0] = z;
+		screen[index][1] = texture_id;
+		screen[index][2] = 0;
+	}
+	//}
+}
+
+void order_points(Point2& a, Point2& b, Point2& c) {
+	if (a.y < b.y) std::swap(a, b);
+	if (a.y < c.y) std::swap(a, c);
+	if (b.y < c.y) std::swap(b, c);
+}
+
+std::vector<Point2> intersection(Point2 p1, Point2 p2) {
+	std::vector<Point2> intersections;
+	float l1_x = -99999999;
+	float l1_y = -999999999;
+	float l1_z = 0;
+	float l1_u = 0;
+	float l1_v = 0;
+
+	float l2_x = -99999999;
+	float l2_y = -999999999;
+	float l2_z = 0;
+	float l2_u = 0;
+	float l2_v = 0;
+	if (abs(p1.y - p2.y) > 0.5) {
+		float t1 = (-(number_of_columns - 1) / 2 - p1.y) / (p2.y - p1.y);
+		float z_1 = p1.z + t1 * (p2.z - p1.z);
+
+		l1_x = ((-(number_of_columns - 1) / 2 - p1.y) * ((p1.x - p2.x) / (p1.y - p2.y)) + p1.x);
+		l1_y = -(number_of_columns - 1) / 2;
+		l1_z = z_1;
+
+		float t2 = ((number_of_columns - 1) / 2 - p1.y) / (p2.y - p1.y);
+		float z_2 = p1.z + t2 * (p2.z - p1.z);
+
+		l2_x = (((number_of_columns - 1) / 2 - p1.y) * ((p1.x - p2.x) / (p1.y - p2.y)) + p1.x);
+		l2_y = (number_of_columns - 1) / 2;
+		l2_z = z_2;
+	}
+	float l3_x = -99999999;
+	float l3_y = -999999999;
+	float l3_z = 0;
+
+	float l4_x = -99999999;
+	float l4_y = -999999999;
+	float l4_z = 0;
+	if (abs(p1.x - p2.x) > 0.5) {
+
+		float t3 = (-(characters_per_row - 1) / 2 - p1.x) / (p2.x - p1.x);
+		float z_3 = p1.z + t3 * (p2.z - p1.z);
+
+		l3_x = -(characters_per_row - 1) / 2;
+		l3_y = (-(characters_per_row - 1) / 2 - p1.x) * ((p1.y - p2.y) / (p1.x - p2.x)) + p1.y;
+		l3_z = z_3;
+
+		float t4 = ((characters_per_row - 1) / 2 - p1.x) / (p2.x - p1.x);
+		float z_4 = p1.z + t4 * (p2.z - p1.z);
+		l4_x = (characters_per_row - 1) / 2;
+		l4_y = ((characters_per_row - 1) / 2 - p1.x) * ((p1.y - p2.y) / (p1.x - p2.x)) + p1.y;
+		l4_z = z_4;
+
+	}
+	if (l1_x <= max(p1.x, p2.x) && l1_x >= min(p1.x, p2.x) && l1_y <= max(p1.y, p2.y) && l1_y >= min(p1.y, p2.y) && abs(l1_x) < characters_per_row / 2 && abs(l1_y) < number_of_columns / 2 && l1_z != 0) {
+		intersections.push_back({ l1_x,l1_y,l1_z });
+	}
+	if (l2_x <= max(p1.x, p2.x) && l2_x >= min(p1.x, p2.x) && l2_y <= max(p1.y, p2.y) && l2_y >= min(p1.y, p2.y) && abs(l2_x) < characters_per_row / 2 && abs(l2_y) < number_of_columns / 2 && l2_z != 0) {
+		intersections.push_back({ l2_x,l2_y,l2_z});
+	}
+	if (l3_y <= max(p1.y, p2.y) && l3_y >= min(p1.y, p2.y) && l3_x <= max(p1.x, p2.x) && l3_x >= min(p1.x, p2.x) && abs(l3_x) < characters_per_row / 2 && abs(l3_y) < number_of_columns / 2 && l3_z != 0) {
+		intersections.push_back({ l3_x,l3_y,l3_z});
+	}
+	if (l4_y <= max(p1.y, p2.y) + 1 && l4_y >= min(p1.y, p2.y) - 1 && l4_x <= max(p1.x, p2.x) && l4_x >= min(p1.x, p2.x) && abs(l4_x) <= characters_per_row / 2 && abs(l4_y) < number_of_columns / 2 && l4_z != 0) {
+		intersections.push_back({ l4_x,l4_y,l4_z});
+	}
+	return intersections;
+}
+
+bool is_point_inside_screen(Point2 point) {
+	if (abs(point.x) >= characters_per_row / 2 || abs(point.y) >= number_of_columns / 2) {
+		return false;
+	}
+	return true;
+}
+
+std::vector<float> plane_equation(Point2 p1, Point2 p2, Point2 p3) {
+	float v1x = p2.x - p1.x;
+	float v1y = p2.y - p1.y;
+	float v1z = p2.z - p1.z;
+
+	float v2x = p3.x - p1.x;
+	float v2y = p3.y - p1.y;
+	float v2z = p3.z - p1.z;
+
+	float nx = v1y * v2z - v1z * v2y;
+	float ny = v1z * v2x - v1x * v2z;
+	float nz = v1x * v2y - v1y * v2x;
+
+	float D = nx * p1.x + ny * p1.y + nz * p1.z;
+
+	return { nx, ny, nz, -D };
+}
+
+bool intpoint_inside_trigon(Point2 s, Point2 a, Point2 b, Point2 c)
+{
+	int as_x = s.x - a.x;
+	int as_y = s.y - a.y;
+
+	bool s_ab = (b.x - a.x) * as_y - (b.y - a.y) * as_x > 0;
+
+	if ((c.x - a.x) * as_y - (c.y - a.y) * as_x > 0 == s_ab) {
+		return false;
+	}
+	if ((c.x - b.x) * (s.y - b.y) - (c.y - b.y) * (s.x - b.x) > 0 != s_ab) {
+		return false;
+	}
+	return true;
+}
+
+void rasterize(int screen[characters_per_row * number_of_columns][number_of_screen_variables], Point2 a, Point2 b, Point2 c, int texture_id) {
+	//std::vector<std::vector<float>> rasterized;
+	std::vector<float> x_co_for_lines_1;
+	std::vector<float> x_co_for_lines_2;
+	std::vector<float> z_co_for_lines_1;
+	std::vector<float> z_co_for_lines_2;
+	std::vector<float> v_co_for_lines_1;
+	std::vector<float> v_co_for_lines_2;
+	order_points(a, b, c);
+	std::swap(c, a);
+	if (max(abs(a.x), max(abs(b.x), abs(c.x))) > characters_per_row / 2 || (max(abs(a.y), max(abs(b.y), abs(c.y))) > number_of_columns / 2)) {
+
+		//std::cout << "rge" << std::endl;
+		std::vector<Point2> a_b_intersection = intersection(a, b);
+		std::vector<Point2> a_c_intersection = intersection(a, c);
+		std::vector<Point2> b_c_intersection = intersection(b, c);
+		std::vector<Point2> points_for_triangulation;
+		if (is_point_inside_screen(a)) {
+			points_for_triangulation.push_back(a);
+			//       std::cout << a.x << " a " << a.y << std::endl;
+		};
+		if (is_point_inside_screen(b)) {
+			points_for_triangulation.push_back(b);
+			//     std::cout << b.x << " b " << b.y << std::endl;
+		};
+		if (is_point_inside_screen(c)) {
+			points_for_triangulation.push_back(c);
+			// std::cout << c.x << " c " << c.y << std::endl;
+		};
+		for (Point2& p : a_b_intersection) {
+			// std::cout << p.x << " a_b " << p.y <<" " <<p.z<< std::endl;
+			points_for_triangulation.push_back(p);
+		}
+		for (Point2& p : a_c_intersection) {
+			//std::cout << p.x << " a_c " << p.y << " " << p.z << std::endl;
+			points_for_triangulation.push_back(p);
+		}
+		for (Point2& p : b_c_intersection) {
+			//std::cout << p.x << " b_c " << p.y << " " << p.z << std::endl;
+			points_for_triangulation.push_back(p);
+		}
+
+		for (int i = 0; i < 4; ++i) {
+			if (intpoint_inside_trigon(screen_vertices[i], a, b, c)) {
+				std::vector<float> plane_coefficients = plane_equation(a, b, c);
+				float p_z = -(plane_coefficients[3] + plane_coefficients[0] * screen_vertices[i].x + plane_coefficients[1] * screen_vertices[i].y) / plane_coefficients[2];
+				std::vector<float> barycentric(3);
+				Point2 p = { screen_vertices[i].x,screen_vertices[i].y, p_z };
+				float area_abc = 0.5 * std::abs(a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+				points_for_triangulation.push_back({ screen_vertices[i].x,screen_vertices[i].y, p_z });
+			}
+		}
+		if (points_for_triangulation.size() != 0) {
+			float centroidx = 0;
+			float centroidy = 0;
+			for (Point2& p : points_for_triangulation) {
+
+				centroidx += p.x;
+				centroidy += p.y;
+			}
+			for (int i = 0; i < points_for_triangulation.size(); i++) {
+			}
+			Point2 centroid = { centroidx / (points_for_triangulation.size()),centroidy / (points_for_triangulation.size()) ,1 };
+			//std::cout << "sort1" << std::endl;
+				//std::cout << "sort1" << std::endl;
+			std::vector<Point2> sorted_points = {};
+			while (points_for_triangulation.size() > 0) {
+				float min_angle = 999999;
+				int index = 0;
+				for (int i = 0; i < points_for_triangulation.size(); i++) {
+					Point2 p1 = points_for_triangulation[i];
+					float angle = atan2(p1.y - centroid.y, p1.x - centroid.x);
+					if (angle < min_angle) {
+						index = i;
+						min_angle = angle;
+					}
+				}
+				sorted_points.push_back(points_for_triangulation[index]);
+				points_for_triangulation.erase(points_for_triangulation.begin() + index);
+
+				/*std::stable_sort(points_for_triangulation.begin(), points_for_triangulation.end(), [&](const Point2& p1, const Point2& p2) {
+					return compareAngles(p1, p2, centroid);
+					});*/
+					//std::cout << "sort2" << std::endl;
+				for (Point2& p : sorted_points) {
+					p.x = max(-characters_per_row / 2, min(characters_per_row / 2, p.x));
+					p.y = max(-number_of_columns / 2, min(number_of_columns / 2, p.y));
+				}
+				if (sorted_points.size() > 2) {
+					for (int i = 1; i < sorted_points.size() - 1; i++) {
+						rasterize(screen, sorted_points[0], sorted_points[i], sorted_points[i + 1], texture_id);
+						//for (std::vector<float> tri_rasteri : rasterize(points_for_triangulation[0], points_for_triangulation[i], points_for_triangulation[i + 1])) {
+						//    rasterized.push_back(tri_rasteri);
+						//}
+					}
+				}
+			}
+
+		}
+	}
+	else {
+		if (abs(a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)) <= 2) {
+		}
+		for (float i = c.y; i >= b.y; i--) {
+
+			if (abs(b.y - c.y) > 1) {
+				x_co_for_lines_2.push_back((i - c.y) * (b.x - c.x) / (b.y - c.y) + c.x);
+				z_co_for_lines_2.push_back((i - c.y) * (b.z - c.z) / (b.y - c.y) + c.z);
+				//v_co_for_lines_2.push_back(c.v + (c.y - i) * (b.y - c.v) / (c.y - b.y));
+			}
+			else {
+				x_co_for_lines_2.push_back(b.x);
+				z_co_for_lines_2.push_back(b.z);
+				//v_co_for_lines_2.push_back(b.v);
+
+			}
+		}
+		for (float i = b.y; i >= a.y; i--) {
+			if (abs(b.y - a.y) > 1) {
+				x_co_for_lines_2.push_back((i - b.y) * (a.x - b.x) / (a.y - b.y) + b.x);
+				z_co_for_lines_2.push_back((i - b.y) * (a.z - b.z) / (a.y - b.y) + b.z);
+				//v_co_for_lines_2.push_back(b.v + (b.y - i) * (a.y - b.v) / (b.y - a.y));
+
+			}
+			else {
+				x_co_for_lines_2.push_back(a.x);
+				z_co_for_lines_2.push_back(a.z);
+				//v_co_for_lines_2.push_back(a.v);
+
+			}
+		}
+		for (float i = c.y; i >= a.y; i--) {
+			if (abs(c.y - a.y) > 1) {
+				x_co_for_lines_1.push_back((i - c.y) * (a.x - c.x) / (a.y - c.y) + c.x);
+				z_co_for_lines_1.push_back((i - c.y) * (a.z - c.z) / (a.y - c.y) + c.z);
+				//v_co_for_lines_1.push_back(c.v + (c.y - i) * (a.y - c.v) / (c.y - a.y));
+
+			}
+			else {
+				x_co_for_lines_1.push_back(c.x);
+				z_co_for_lines_1.push_back(c.z);
+				//v_co_for_lines_1.push_back(c.v);
+
+			}
+		}
+		if (x_co_for_lines_1.size() == 0) {
+			std::cout << x_co_for_lines_2.size() << std::endl;
+		}
+		for (int i = 0; i < x_co_for_lines_1.size(); i++) {
+			if (x_co_for_lines_1[i] < x_co_for_lines_2[i]) {
+				for (int x = x_co_for_lines_1[i]; x <= x_co_for_lines_2[i]; x++) {
+					if (x_co_for_lines_1[i] != x_co_for_lines_2[i]) {
+						if (z_co_for_lines_1[i] + (x - x_co_for_lines_1[i]) * (z_co_for_lines_1[i] - z_co_for_lines_2[i]) / (x_co_for_lines_1[i] - x_co_for_lines_2[i]) > 0.1) {
+							update_pixel(screen, x, c.y - i, z_co_for_lines_1[i] + (x - x_co_for_lines_1[i]) * (z_co_for_lines_1[i] - z_co_for_lines_2[i]) / (x_co_for_lines_1[i] - x_co_for_lines_2[i]), texture_id);
+						}
+					}
+					else if (z_co_for_lines_1[i] > 0.1) {
+						//rasterized.push_back({ x, c.y - i, z_co_for_lines_1[i] });
+					}
+				}
+			}
+			else {
+				for (int x = x_co_for_lines_2[i]; x <= x_co_for_lines_1[i]; x++) {
+					if (x_co_for_lines_1[i] != x_co_for_lines_2[i]) {
+						if (z_co_for_lines_2[i] + (x - x_co_for_lines_2[i]) * (z_co_for_lines_1[i] - z_co_for_lines_2[i]) / (x_co_for_lines_1[i] - x_co_for_lines_2[i]) > 0.1) {
+							update_pixel(screen, x, c.y - i, z_co_for_lines_2[i] + (x - x_co_for_lines_2[i]) * (z_co_for_lines_1[i] - z_co_for_lines_2[i]) / (x_co_for_lines_1[i] - x_co_for_lines_2[i]), texture_id);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+void controls(float& x_rotation, float& y_rotation, float& px, float& py, float& pz) {
+	float n_px = 0;
+	float n_py = 0;
+	float n_pz = 0;
+
+	float delta_time = 0.01;
+
+	if (GetAsyncKeyState(VK_UP) & 0x8000 && y_rotation + 1 * delta_time < 3.14 / 2) {
+		y_rotation += 1 * delta_time;
+	}
+	if (GetAsyncKeyState(VK_DOWN) & 0x8000 && y_rotation - 1 * delta_time > -3.14 / 2) {
+		y_rotation -= 1 * delta_time;
+	}
+	if (GetAsyncKeyState(VK_LEFT) & 0x8000) {
+		x_rotation -= 1 * delta_time;
+	}
+	if (GetAsyncKeyState(VK_RIGHT) & 0x8000) {
+		x_rotation += 1 * delta_time;
+	}
+	//std::cout << "ty" << ty << std::endl;
+	if (GetAsyncKeyState('W') & 0x8000) { // Move forward
+		n_px += -10 * std::sin(-x_rotation) * delta_time;
+		n_pz -= -10 * std::cos(x_rotation) * delta_time;
+	}
+	if (GetAsyncKeyState('S') & 0x8000) { // Move backward
+		n_px -= -10 * std::sin(-x_rotation) * delta_time;
+		n_pz += -10 * std::cos(x_rotation) * delta_time;
+	}
+	if (GetAsyncKeyState('A') & 0x8000) { // Turn left
+		n_px += -10 * std::cos(-x_rotation) * delta_time;
+		n_pz -= -10* std::sin(x_rotation) * delta_time;
+	}
+	if (GetAsyncKeyState('D') & 0x8000) { // Turn right
+		n_px -= -10 * std::cos(-x_rotation) * delta_time;
+		n_pz += -10 * std::sin(x_rotation) * delta_time;
+	}
+	if (GetAsyncKeyState(VK_SPACE) & 0x8000) { // Turn right
+		n_py += 10*delta_time;
+	}
+	if (GetAsyncKeyState('V') & 0x8000) { // Turn right
+		n_py -= 10*delta_time;
+	}
+	px += n_px;
+	py += n_py;
+	pz += n_pz;
+}
+
+
+void drawTriangle(int screen[characters_per_row * number_of_columns][number_of_screen_variables], float x_rot, float y_rot,int color,  float x1, float y1, float z1, float x2, float y2, float z2, float x3, float y3, float z3) {
+	z1 += 10;
+	z2 += 10;
+	z3 += 10;
+
+	add_rotation(x_rot, y_rot - 1.5707, x1, y1, z1);
+	add_rotation(x_rot, y_rot - 1.5707, x2, y2, z2);
+	add_rotation(x_rot, y_rot - 1.5707, x3, y3, z3);
+	Point2 a = { x1, y1, z1 };
+	Point2 b = { x2, y2, z2 };
+	Point2 c = { x3, y3, z3 };
+
+	float constant_x = number_of_columns * 2;
+	float constant_y = number_of_columns * 1;
+	float constant = 0;
+
+	a.x = constant_x * a.x / (a.z + constant);
+	a.y = constant_y * a.y / (a.z + constant);
+	a.z *= constant_x;
+
+	b.x = constant_x * b.x / (b.z + constant);
+	b.y = constant_y * b.y / (b.z + constant);
+	b.z *= constant_x;
+
+	c.x = constant_x * c.x / (c.z + constant);
+	c.y = constant_y * c.y / (c.z + constant);
+	c.z *= constant_x;
+
+	rasterize(screen, a, b, c, color);
+}
+
+void drawSquare(int screen[characters_per_row * number_of_columns][number_of_screen_variables], int color, float px, float py, float pz, float x_rot, float y_rot, float x1, float y1, float z1, float x2, float y2, float z2, float x3, float y3, float z3, float x4, float y4, float z4) {
+	drawTriangle(screen, x_rot, y_rot, color, x1-px, y1-py, z1-pz, x2-px, y2-py, z2-pz, x3-px, y3-py, z3-pz);
+	drawTriangle(screen, x_rot, y_rot, color, x1-px, y1-py, z1-pz, x4-px, y4-py, z4-pz, x3-px, y3-py, z3-pz);
+}
+
+void update_screen(int screen[characters_per_row * number_of_columns][number_of_screen_variables], std::vector<int> cube, float px, float py, float pz, float x_rot, float y_rot) {
+	//top face
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[i], px, py, pz, x_rot, y_rot, 0 + i, 0, 0, 1 + i, 0, 0, 1 + i, 0, 1, 0, 0, 1);
+	}
+	for (int i = 1; i <= 2; i++) {
+		drawSquare(screen, cube[2+i], px, py, pz, x_rot, y_rot, 2, 0, 0 + i, 3, 0, 0 + i, 3, 0, 1 + i, 2, 0, 1 + i);
+	}
+	for (int i = 1; i <= 2; i++) {
+		drawSquare(screen, cube[4 + i], px, py, pz, x_rot, y_rot, 2 - i, 0, 2, 3 - i, 0, 2, 3 - i, 0, 3, 2 - i, 0, 3);
+	}
+	drawSquare(screen, cube[7], px, py, pz, x_rot, y_rot, 0, 0, 1, 1, 0, 1, 1, 0, 2, 0, 0, 2);
+
+	drawSquare(screen, 5*16   , px, py, pz, x_rot, y_rot, 1, 0, 1, 2, 0, 1, 2, 0, 2, 1, 0, 2);
+
+	//front face
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[8+i], px, py, pz, x_rot, y_rot, 0+i, 0, 0, 0+i, 1, 0, 1+i, 1, 0, 1+i, 0, 0);
+	}
+	for (int i = 0; i <= 1; i++) {
+		drawSquare(screen, cube[20 + i], px, py, pz, x_rot, y_rot, 0 + 2*i, 1, 0, 0 + 2*i, 2, 0, 1 + 2*i, 2, 0, 1 + 2*i, 1, 0);
+	}
+	for (int i = 1; i <= 2; i++) {
+	}
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[28 + i], px, py, pz, x_rot, y_rot, 0 + i, 2, 0, 0 + i, 3, 0, 1 + i, 3, 0, 1 + i, 2, 0);
+	}
+
+	drawSquare(screen, 3*16, px, py, pz, x_rot, y_rot, 1, 1, 0, 2, 1, 0, 2, 2, 0, 1, 2, 0);
+
+	//right face
+	for (int i = 0; i <= 2; i++){
+		drawSquare(screen, cube[11 + i], px, py, pz, x_rot, y_rot, 3, 0, 0 + i, 3, 0, 1 + i, 3, 1, 1 +i, 3, 1, 0 + i);
+	}
+	for (int i = 0; i <= 1; i++) {
+		drawSquare(screen, cube[22 + i], px, py, pz, x_rot, y_rot, 3, 1, 0 + 2*i, 3, 1, 1 + 2*i, 3, 2, 1 + 2*i, 3, 2, 0 + 2*i);
+	}
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[31 + i], px, py, pz, x_rot, y_rot, 3, 2, 0 + i, 3, 2, 1 + i, 3, 3, 1 + i, 3, 3, 0 + i);
+	}
+
+	drawSquare(screen, 2 * 16, px, py, pz, x_rot, y_rot, 3, 1, 1, 3, 1, 2, 3, 2, 2, 3, 2, 1);
+
+
+	//back face
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[16 - i], px, py, pz, x_rot, y_rot, 0 + i, 0, 3, 0 + i, 1, 3, 1 + i, 1, 3, 1 + i, 0, 3);
+	}
+	for (int i = 0; i <= 1; i++) {
+		drawSquare(screen, cube[25 - i], px, py, pz, x_rot, y_rot, 0 + 2 * i, 1, 3, 0 + 2 * i, 2, 3, 1 + 2 * i, 2, 3, 1 + 2 * i, 1, 3);
+	}
+	for (int i = 1; i <= 2; i++) {
+	}
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[36 - i], px, py, pz, x_rot, y_rot, 0 + i, 2, 3, 0 + i, 3, 3, 1 + i, 3, 3, 1 + i, 2, 3);
+	}
+
+	drawSquare(screen, 4 * 16, px, py, pz, x_rot, y_rot, 1, 1, 3, 2, 1, 3, 2, 2, 3, 1, 2, 3);
+
+
+	//left face
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[19 - i], px, py, pz, x_rot, y_rot, 0, 0, 0 + i, 0, 0, 1 + i, 0, 1, 1 + i, 0, 1, 0 + i);
+	}
+	for (int i = 0; i <= 1; i++) {
+		drawSquare(screen, cube[27 - i], px, py, pz, x_rot, y_rot, 0, 1, 0 + 2 * i, 0, 1, 1 + 2 * i, 0, 2, 1 + 2 * i, 0, 2, 0 + 2 * i);
+	}
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[39 - i], px, py, pz, x_rot, y_rot, 0, 2, 0 + i, 0, 2, 1 + i, 0, 3, 1 + i, 0, 3, 0 + i);
+	}
+
+	drawSquare(screen, 1 * 16, px, py, pz, x_rot, y_rot, 0, 1, 1, 0, 1, 2, 0, 2, 2, 0, 2, 1);
+
+
+	//bottom face
+	for (int i = 0; i <= 2; i++) {
+		drawSquare(screen, cube[40+i], px, py, pz, x_rot, y_rot, 0 + i, 3, 0, 1 + i, 3, 0, 1 + i, 3, 1, 0+i, 3, 1);
+	}
+	for (int i = 1; i <= 2; i++) {
+		drawSquare(screen, cube[42 + i], px, py, pz, x_rot, y_rot, 2, 3, 0 + i, 3, 3, 0 + i, 3, 3, 1 + i, 2, 3, 1 + i);
+	}
+	for (int i = 1; i <= 2; i++) {
+		drawSquare(screen, cube[44 + i], px, py, pz, x_rot, y_rot, 2 - i, 3, 2, 3 - i, 3, 2, 3 - i, 3, 3, 2 - i, 3, 3);
+	}
+	drawSquare(screen, cube[47], px, py, pz, x_rot, y_rot, 0, 3, 1, 1, 3, 1, 1, 3, 2, 0, 3, 2);
+
+	drawSquare(screen, 0 * 16, px, py, pz, x_rot, y_rot, 1, 3, 1, 2, 3, 1, 2, 3, 2, 1, 3, 2);
+
+
+}
+
+
+
+
+
+
+
+
+
+//CUBE LOGIC
+// 
+// 
+//            6 --5 --4 
+//            |       |
+//            |       |
+//            7   U   3 
+//            |       |
+//            |       |
+//            0 --1 --2 
+// 
+//17--18--19  8 --9 --10  11--12--13  14--15--16
+//|       |   |       |   |       |   |       |
+//|       |   |       |   |       |   |       |
+//26  L   27  20  F   21  22  R   23  24  B   25
+//|       |   |       |   |       |   |       |
+//|       |   |       |   |       |   |       |
+//37--38--39  28--29--30  31--32--33  34--35--36 
+// 
+//            40--41--42
+//            |       |
+//            |       |
+//            47  D   43
+//            |       |
+//            |       |
+//            46--45--44
+void bit_swap(int n, int k, uint64_t& to_swap) {
+	if (((to_swap >> n) & 1) != ((to_swap >> k)&1)) {
+		to_swap ^= ((1ULL << n) | (1ULL << k));
+	}
+}
+
+void u(uint64_t& color) {
+	bit_swap(0, 2, color);
+	bit_swap(0, 4, color);
+	bit_swap(0, 6, color);
+
+	bit_swap(1, 3, color);
+	bit_swap(1, 5, color);
+	bit_swap(1, 7, color);
+
+	bit_swap(8, 11, color);
+	bit_swap(8, 14, color);
+	bit_swap(8, 17, color);
+
+	bit_swap(9, 12, color);
+	bit_swap(9, 15, color);
+	bit_swap(9, 18, color);
+
+	bit_swap(10, 13, color);
+	bit_swap(10, 16, color);
+	bit_swap(10, 19, color);
+}
+void f(uint64_t& color) {
+	bit_swap(8, 10, color);
+	bit_swap(8, 30, color);
+	bit_swap(8, 28, color);
+
+	bit_swap(9, 21, color);
+	bit_swap(9, 29, color);
+	bit_swap(9, 20, color);
+
+	bit_swap(0, 11, color);
+	bit_swap(0, 42, color);
+	bit_swap(0, 39, color);
+
+	bit_swap(1, 22, color);
+	bit_swap(1, 41, color);
+	bit_swap(1, 27, color);
+
+	bit_swap(2, 31, color);
+	bit_swap(2, 40, color);
+	bit_swap(2, 19, color);
+}
+void r(uint64_t& color) {
+	bit_swap(11, 13, color);
+	bit_swap(11, 33, color);
+	bit_swap(11, 31, color);
+
+	bit_swap(12, 23, color);
+	bit_swap(12, 32, color);
+	bit_swap(12, 22, color);
+
+	bit_swap(2, 14, color);
+	bit_swap(2, 44, color);
+	bit_swap(2, 30, color);
+
+	bit_swap(3, 24, color);
+	bit_swap(3, 43, color);
+	bit_swap(3, 21, color);
+
+	bit_swap(4, 34, color);
+	bit_swap(4, 42, color);
+	bit_swap(4, 10, color);
+}
+void b(uint64_t& color) {
+	bit_swap(14, 16, color);
+	bit_swap(14, 36, color);
+	bit_swap(14, 34, color);
+
+	bit_swap(15, 25, color);
+	bit_swap(15, 35, color);
+	bit_swap(15, 24, color);
+
+	bit_swap(13, 6, color);
+	bit_swap(13, 37, color);
+	bit_swap(13, 44, color);
+
+	bit_swap(23, 5, color);
+	bit_swap(23, 26, color);
+	bit_swap(23, 45, color);
+
+	bit_swap(33, 4, color);
+	bit_swap(33, 17, color);
+	bit_swap(33, 46, color);
+}
+void l(uint64_t& color) {
+	bit_swap(17, 19, color);
+	bit_swap(17, 39, color);
+	bit_swap(17, 37, color);
+
+	bit_swap(18, 27, color);
+	bit_swap(18, 38, color);
+	bit_swap(18, 26, color);
+
+	bit_swap(8, 40, color);
+	bit_swap(8, 36, color);
+	bit_swap(8, 6, color);
+
+	bit_swap(20, 47, color);
+	bit_swap(20, 25, color);
+	bit_swap(20, 7, color);
+
+	bit_swap(28, 46, color);
+	bit_swap(28, 16, color);
+	bit_swap(28, 0, color);
+}
+void d(uint64_t& color) {
+	bit_swap(40, 42, color);
+	bit_swap(40, 44, color);
+	bit_swap(40, 46, color);
+
+	bit_swap(41, 43, color);
+	bit_swap(41, 45, color);
+	bit_swap(41, 47, color);
+
+	bit_swap(28, 31, color);
+	bit_swap(28, 34, color);
+	bit_swap(28, 37, color);
+
+	bit_swap(29, 32, color);
+	bit_swap(29, 35, color);
+	bit_swap(29, 38, color);
+
+	bit_swap(30, 33, color);
+	bit_swap(30, 36, color);
+	bit_swap(30, 39, color);
+}
+
+void Up(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	u(W);
+	u(G);
+	u(O);
+	u(R);
+	u(B);
+	u(E);
+}
+void Fr(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	f(W);
+	f(G);
+	f(O);
+	f(R);
+	f(B);
+	f(E);
+}
+void Ri(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	r(W);
+	r(G);
+	r(O);
+	r(R);
+	r(B);
+	r(E);
+}
+void Op(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	b(W);
+	b(G);
+	b(O);
+	b(R);
+	b(B);
+	b(E);
+}
+void Le(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	l(W);
+	l(G);
+	l(O);
+	l(R);
+	l(B);
+	l(E);
+}
+void Bo(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	d(W);
+	d(G);
+	d(O);
+	d(R);
+	d(B);
+	d(E);
+}
+
+void fuseCube(std::vector<int>& cube, uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	for (int i = 0; i < 48; i++) {
+		if (((W >> i) & 1) == 1) {
+			cube[i] = 0;
+		}
+		else if (((G >> i) & 1) == 1) {
+			cube[i] = 1*16;
+		}
+		else if (((R >> i) & 1) == 1) {
+			cube[i] = 2*16;
+		}
+		else if (((B >> i) & 1) == 1) {
+			cube[i] = 3*16;
+		}
+		else if (((O >> i) & 1) == 1) {
+			cube[i] = 4*16;
+		}
+		else if (((E >> i) & 1) == 1) {
+			cube[i] = 5*16;
+		}
+	}
+}
+
+void cubeControls(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+	if (GetAsyncKeyState('U') & 0x8000) { // Turn left
+		Up(W, G, O, R, B, E);
+		Sleep(100);
+	}
+	if (GetAsyncKeyState('F') & 0x8000) { // Turn left
+		Fr(W, G, O, R, B, E);
+		Sleep(100);
+	}
+	if (GetAsyncKeyState('R') & 0x8000) { // Turn left
+		Ri(W, G, O, R, B, E);
+		Sleep(100);
+	}
+	if (GetAsyncKeyState('L') & 0x8000) { // Turn left
+		Le(W, G, O, R, B, E);
+		Sleep(100);
+	}
+	if (GetAsyncKeyState('O') & 0x8000) { // Turn left
+		Op(W, G, O, R, B, E);
+		Sleep(100);
+	}
+	if (GetAsyncKeyState('B') & 0x8000) { // Turn left
+		Bo(W, G, O, R, B, E);
+		Sleep(100);
+	}
+}
+int main()
+{
+	float px = 0;
+	float py = 0;
+	float pz = -20;
+	float x_rot = 0;
+	float y_rot = 0;
+	int(*screen)[number_of_screen_variables] = new int[characters_per_row * number_of_columns][number_of_screen_variables];
+	fill_screen(screen);
+	uint64_t W = 0b111111110000000000000000000000000000000000000000;//U
+	uint64_t G = 0b000000001110000000001100000011100000000000000000;//F
+	uint64_t R = 0b000000000001110000000011000000011100000000000000;//R
+	uint64_t B = 0b000000000000001110000000110000000011100000000000;//B
+	uint64_t O = 0b000000000000000001110000001100000000011100000000;//L
+	uint64_t E = 0b000000000000000000000000000000000000000011111111;//D
+	std::vector<int> cube = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
+	fuseCube(cube, W, G, R, B, O, E);
+	while (true) {
+		std::cout << px << " " << py << " " << pz<<" "<<x_rot<<" "<<y_rot << std::endl;
+		controls(x_rot, y_rot, px, py, pz);
+		cubeControls(W, G, R, B, O, E);
+		fuseCube(cube, W, G, R, B, O, E);
+		update_screen(screen, cube, px, py, pz, x_rot, y_rot);
+		draw_screen(screen);
+		fill_screen(screen);
+	}
+}
+
