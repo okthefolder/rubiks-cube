@@ -385,16 +385,16 @@ void controls(float& x_rotation, float& y_rotation, float& px, float& py, float&
 	float delta_time = 0.01;
 
 	if (GetAsyncKeyState(VK_UP) & 0x8000 && y_rotation + 1 * delta_time < 3.14 / 2) {
-		y_rotation += 1 * delta_time;
+		y_rotation += 3 * delta_time;
 	}
 	if (GetAsyncKeyState(VK_DOWN) & 0x8000 && y_rotation - 1 * delta_time > -3.14 / 2) {
-		y_rotation -= 1 * delta_time;
+		y_rotation -= 3 * delta_time;
 	}
 	if (GetAsyncKeyState(VK_LEFT) & 0x8000) {
-		x_rotation -= 1 * delta_time;
+		x_rotation -= 3 * delta_time;
 	}
 	if (GetAsyncKeyState(VK_RIGHT) & 0x8000) {
-		x_rotation += 1 * delta_time;
+		x_rotation += 3 * delta_time;
 	}
 	//std::cout << "ty" << ty << std::endl;
 	if (GetAsyncKeyState('W') & 0x8000) { // Move forward
@@ -416,14 +416,13 @@ void controls(float& x_rotation, float& y_rotation, float& px, float& py, float&
 	if (GetAsyncKeyState(VK_SPACE) & 0x8000) { // Turn right
 		n_py += 10*delta_time;
 	}
-	if (GetAsyncKeyState('V') & 0x8000) { // Turn right
+	if (GetAsyncKeyState(VK_CONTROL) & 0x8000) { // Turn right
 		n_py -= 10*delta_time;
 	}
 	px += n_px;
 	py += n_py;
 	pz += n_pz;
 }
-
 
 void drawTriangle(int screen[characters_per_row * number_of_columns][number_of_screen_variables], float x_rot, float y_rot,int color,  float x1, float y1, float z1, float x2, float y2, float z2, float x3, float y3, float z3) {
 	z1 += 10;
@@ -464,7 +463,7 @@ void drawSquare(int screen[characters_per_row * number_of_columns][number_of_scr
 void update_screen(int screen[characters_per_row * number_of_columns][number_of_screen_variables], std::vector<int> cube, float px, float py, float pz, float x_rot, float y_rot) {
 	//top face
 	for (int i = 0; i <= 2; i++) {
-		drawSquare(screen, cube[i], px, py, pz, x_rot, y_rot, 0 + i, 0, 0, 1 + i, 0, 0, 1 + i, 0, 1, 0, 0, 1);
+		drawSquare(screen, cube[i], px, py, pz, x_rot, y_rot, 0 + i, 0, 0, 1 + i, 0, 0, 1 + i, 0, 1, 0+i, 0, 1);
 	}
 	for (int i = 1; i <= 2; i++) {
 		drawSquare(screen, cube[2+i], px, py, pz, x_rot, y_rot, 2, 0, 0 + i, 3, 0, 0 + i, 3, 0, 1 + i, 2, 0, 1 + i);
@@ -551,11 +550,6 @@ void update_screen(int screen[characters_per_row * number_of_columns][number_of_
 
 
 }
-
-
-
-
-
 
 
 
