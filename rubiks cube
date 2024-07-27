@@ -1,13 +1,39 @@
-#include <iostream>
 #include <vector>
+#include <random>
+#include <iostream>
 #include <algorithm>
 #include <windows.h>
+#include <unordered_map>
 
 struct Point2 {
 	float x;
 	float y;
 	float z;
 };
+
+struct Cube {
+	uint64_t W;//U
+	uint64_t G;//F
+	uint64_t R;//R
+	uint64_t B;//B
+	uint64_t O;//L
+	uint64_t E;//D
+};
+
+const int numBits = 48; // Number of bits for cube representation
+const int numColors = 6; // Number of colors
+uint64_t zobristTable[numBits][numColors];
+
+void initializeZobristTable() {
+	std::mt19937_64 rng(std::random_device{}());
+	std::uniform_int_distribution<uint64_t> dist;
+
+	for (int bit = 0; bit < numBits; ++bit) {
+		for (int color = 0; color < numColors; ++color) {
+			zobristTable[bit][color] = dist(rng);
+		}
+	}
+}
 
 const int characters_per_row = 940;
 const int number_of_columns = 270;
@@ -713,6 +739,133 @@ void d(uint64_t& color) {
 	bit_swap(30, 39, color);
 }
 
+void uP(uint64_t& color) {
+	bit_swap(0, 6, color);
+	bit_swap(0, 4, color);
+	bit_swap(0, 2, color);
+
+	bit_swap(1, 7, color);
+	bit_swap(1, 5, color);
+	bit_swap(1, 3, color);
+
+	bit_swap(8, 17, color);
+	bit_swap(8, 14, color);
+	bit_swap(8, 11, color);
+
+	bit_swap(9, 18, color);
+	bit_swap(9, 15, color);
+	bit_swap(9, 12, color);
+
+	bit_swap(10, 19, color);
+	bit_swap(10, 16, color);
+	bit_swap(10, 13, color);
+}
+void fP(uint64_t& color) {
+	bit_swap(8, 28, color);
+	bit_swap(8, 30, color);
+	bit_swap(8, 10, color);
+
+	bit_swap(9, 20, color);
+	bit_swap(9, 29, color);
+	bit_swap(9, 21, color);
+
+	bit_swap(0, 39, color);
+	bit_swap(0, 42, color);
+	bit_swap(0, 11, color);
+
+	bit_swap(1, 27, color);
+	bit_swap(1, 41, color);
+	bit_swap(1, 22, color);
+
+	bit_swap(2, 19, color);
+	bit_swap(2, 40, color);
+	bit_swap(2, 31, color);
+}
+void rP(uint64_t& color) {
+	bit_swap(11, 31, color);
+	bit_swap(11, 33, color);
+	bit_swap(11, 13, color);
+
+	bit_swap(12, 22, color);
+	bit_swap(12, 32, color);
+	bit_swap(12, 23, color);
+
+	bit_swap(2, 30, color);
+	bit_swap(2, 44, color);
+	bit_swap(2, 14, color);
+
+	bit_swap(3, 21, color);
+	bit_swap(3, 43, color);
+	bit_swap(3, 24, color);
+
+	bit_swap(4, 10, color);
+	bit_swap(4, 42, color);
+	bit_swap(4, 34, color);
+}
+void bP(uint64_t& color) {
+	bit_swap(14, 34, color);
+	bit_swap(14, 36, color);
+	bit_swap(14, 16, color);
+
+	bit_swap(15, 24, color);
+	bit_swap(15, 35, color);
+	bit_swap(15, 25, color);
+
+	bit_swap(13, 44, color);
+	bit_swap(13, 37, color);
+	bit_swap(13, 6, color);
+
+	bit_swap(23, 45, color);
+	bit_swap(23, 26, color);
+	bit_swap(23, 5, color);
+
+	bit_swap(33, 46, color);
+	bit_swap(33, 17, color);
+	bit_swap(33, 4, color);
+}
+void lP(uint64_t& color) {
+	bit_swap(17, 37, color);
+	bit_swap(17, 39, color);
+	bit_swap(17, 19, color);
+
+	bit_swap(18, 26, color);
+	bit_swap(18, 38, color);
+	bit_swap(18, 27, color);
+
+	bit_swap(8, 6, color);
+	bit_swap(8, 36, color);
+	bit_swap(8, 40, color);
+
+	bit_swap(20, 7, color);
+	bit_swap(20, 25, color);
+	bit_swap(20, 47, color);
+
+	bit_swap(28, 0, color);
+	bit_swap(28, 16, color);
+	bit_swap(28, 46, color);
+}
+void dP(uint64_t& color) {
+	bit_swap(40, 46, color);
+	bit_swap(40, 44, color);
+	bit_swap(40, 42, color);
+
+	bit_swap(41, 47, color);
+	bit_swap(41, 45, color);
+	bit_swap(41, 43, color);
+
+	bit_swap(28, 37, color);
+	bit_swap(28, 34, color);
+	bit_swap(28, 31, color);
+
+	bit_swap(29, 38, color);
+	bit_swap(29, 35, color);
+	bit_swap(29, 32, color);
+
+	bit_swap(30, 39, color);
+	bit_swap(30, 36, color);
+	bit_swap(30, 33, color);
+}
+
 void Up(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
 	u(W);
 	u(G);
@@ -760,6 +913,55 @@ void Bo(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_
 	d(R);
 	d(B);
 	d(E);
+}
+
+void UpP(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+		uP(W);
+		uP(G);
+		uP(O);
+		uP(R);
+		uP(B);
+		uP(E);
+}
+void FrP(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+		fP(W);
+		fP(G);
+		fP(O);
+		fP(R);
+		fP(B);
+		fP(E);
+}
+void RiP(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+		rP(W);
+		rP(G);
+		rP(O);
+		rP(R);
+		rP(B);
+		rP(E);
+}
+void OpP(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+		bP(W);
+		bP(G);
+		bP(O);
+		bP(R);
+		bP(B);
+		bP(E);
+}
+void LeP(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+		lP(W);
+		lP(G);
+		lP(O);
+		lP(R);
+		lP(B);
+		lP(E);
+}
+void BoP(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
+		dP(W);
+		dP(G);
+		dP(O);
+		dP(R);
+		dP(B);
+		dP(E);
 }
 
 void fuseCube(std::vector<int>& cube, uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& B, uint64_t& E) {
@@ -811,8 +1013,88 @@ void cubeControls(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& 
 		Sleep(100);
 	}
 }
+
+uint64_t zobristHash(const uint64_t& W, const uint64_t& G, const uint64_t& O, const uint64_t& R, const uint64_t& B, const uint64_t& E) {
+	uint64_t hash = 0;
+	std::vector<uint64_t> colors = { W, G, O, R, B, E };
+	for (int j = 0; j < numColors; ++j) {
+		for (int i = 0; i < numBits; ++i) {
+			if (colors[j] & (1ULL << i)) {
+				hash ^= zobristTable[i][j];
+			}
+		}
+	}
+
+	return hash;
+}
+
+using MoveFunction = void (*)(uint64_t&, uint64_t&, uint64_t&, uint64_t&, uint64_t&, uint64_t&);
+
+std::vector<MoveFunction> moves = {
+	nullptr, Up, Fr, Ri, Op, Le, Bo, UpP, FrP, RiP, OpP, LeP, BoP
+};
+
+void mapSearchSpace(std::unordered_map<uint64_t, Cube>& searchSpace, int depth, int index, uint64_t W, uint64_t G, uint64_t O, uint64_t R, uint64_t B, uint64_t E) {
+	/*switch (index) {
+	case 1:
+		Up(W, G, O, R, B, E);
+		break;
+	case 2:
+		Fr(W, G, O, R, B, E);
+		break;
+	case 3:
+		Ri(W, G, O, R, B, E);
+		break;
+	case 4:
+		Op(W, G, O, R, B, E);
+		break;
+	case 5:
+		Le(W, G, O, R, B, E);
+		break;
+	case 6:
+		Bo(W, G, O, R, B, E);
+		break;
+	case 7:
+		UpP(W, G, O, R, B, E);
+		break;
+	case 8:
+		FrP(W, G, O, R, B, E);
+		break;
+	case 9:
+		RiP(W, G, O, R, B, E);
+		break;
+	case 10:
+		OpP(W, G, O, R, B, E);
+		break;
+	case 11:
+		LeP(W, G, O, R, B, E);
+		break;
+	case 12:
+		BoP(W, G, O, R, B, E);
+		break;
+	default:
+		break;
+	}
+	Cube cube = { W,G,O,R,B,E };*/
+	if (index != 0) {
+		moves[index](W, G, O, R, B, E);
+	}
+	if (searchSpace.find(zobristHash(W, G, O, R, B, E)) != searchSpace.end()) {
+		return;
+	}
+	Cube cube = { W,G,O,R,B,E };
+	searchSpace.insert({ zobristHash(W,G,O,R,B,E),cube });
+	if (depth <= 0) {
+		return;
+	}
+	for (int i = 1; i <= 12; i++) {
+		mapSearchSpace(searchSpace, depth - 1, i, W, G, O, R, B, E);
+	}
+}
+
 int main()
 {
+	initializeZobristTable();
 	float px = 0;
 	float py = 0;
 	float pz = -20;
@@ -828,6 +1110,8 @@ int main()
 	uint64_t E = 0b000000000000000000000000000000000000000011111111;//D
 	std::vector<int> cube = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 	fuseCube(cube, W, G, R, B, O, E);
+	std::unordered_map< uint64_t,Cube> searchSpace;
+	mapSearchSpace(searchSpace,10,0,W,G,R,B,O,E);
 	while (true) {
 		std::cout << px << " " << py << " " << pz<<" "<<x_rot<<" "<<y_rot << std::endl;
 		controls(x_rot, y_rot, px, py, pz);
