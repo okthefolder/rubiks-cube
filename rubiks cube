@@ -1,5 +1,8 @@
+#include <omp.h>
 #include <vector>
 #include <random>
+#include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <algorithm>
 #include <windows.h>
@@ -19,6 +22,9 @@ struct Cube {
 	uint64_t O;//L
 	uint64_t E;//D
 };
+
+int collisions = 0;
+int elements = 0;
 
 const int numBits = 48; // Number of bits for cube representation
 const int numColors = 6; // Number of colors
@@ -607,9 +613,7 @@ void update_screen(int screen[characters_per_row * number_of_columns][number_of_
 //            |       |
 //            46--45--44
 void bit_swap(int n, int k, uint64_t& to_swap) {
-	if (((to_swap >> n) & 1) != ((to_swap >> k)&1)) {
-		to_swap ^= ((1ULL << n) | (1ULL << k));
-	}
+	to_swap ^= ( ((((to_swap >> n)&1)^((to_swap >> k) & 1))<<n) | ((((to_swap >> n) & 1) ^ ((to_swap >> k) & 1)) << k) );
 }
 
 void u(uint64_t& color) {
@@ -1012,19 +1016,19 @@ void cubeControls(uint64_t& W, uint64_t& G, uint64_t& O, uint64_t& R, uint64_t& 
 		Bo(W, G, O, R, B, E);
 		Sleep(100);
 	}
+
 }
 
 uint64_t zobristHash(const uint64_t& W, const uint64_t& G, const uint64_t& O, const uint64_t& R, const uint64_t& B, const uint64_t& E) {
 	uint64_t hash = 0;
 	std::vector<uint64_t> colors = { W, G, O, R, B, E };
-	for (int j = 0; j < numColors; ++j) {
-		for (int i = 0; i < numBits; ++i) {
-			if (colors[j] & (1ULL << i)) {
+	for (int j = 0; j < 6; j++) {
+		for (int i = 0; i < 48; i++) {
+			if ((colors[j] >> i) & 1) {
 				hash ^= zobristTable[i][j];
 			}
 		}
 	}
-
 	return hash;
 }
 
@@ -1034,66 +1038,63 @@ std::vector<MoveFunction> moves = {
 	nullptr, Up, Fr, Ri, Op, Le, Bo, UpP, FrP, RiP, OpP, LeP, BoP
 };
 
-void mapSearchSpace(std::unordered_map<uint64_t, Cube>& searchSpace, int depth, int index, uint64_t W, uint64_t G, uint64_t O, uint64_t R, uint64_t B, uint64_t E) {
-	/*switch (index) {
-	case 1:
-		Up(W, G, O, R, B, E);
-		break;
-	case 2:
-		Fr(W, G, O, R, B, E);
-		break;
-	case 3:
-		Ri(W, G, O, R, B, E);
-		break;
-	case 4:
-		Op(W, G, O, R, B, E);
-		break;
-	case 5:
-		Le(W, G, O, R, B, E);
-		break;
-	case 6:
-		Bo(W, G, O, R, B, E);
-		break;
-	case 7:
-		UpP(W, G, O, R, B, E);
-		break;
-	case 8:
-		FrP(W, G, O, R, B, E);
-		break;
-	case 9:
-		RiP(W, G, O, R, B, E);
-		break;
-	case 10:
-		OpP(W, G, O, R, B, E);
-		break;
-	case 11:
-		LeP(W, G, O, R, B, E);
-		break;
-	case 12:
-		BoP(W, G, O, R, B, E);
-		break;
-	default:
-		break;
-	}
-	Cube cube = { W,G,O,R,B,E };*/
-	if (index != 0) {
-		moves[index](W, G, O, R, B, E);
-	}
+void mapSearchSpace(std::unordered_map<uint64_t, Cube>& searchSpace, int startingDepth, int depth, uint64_t move, int index, uint64_t W, uint64_t G, uint64_t O, uint64_t R, uint64_t B, uint64_t E) {
+	elements++;
+	moves[index](W, G, O, R, B, E);
 	if (searchSpace.find(zobristHash(W, G, O, R, B, E)) != searchSpace.end()) {
-		return;
+		Cube kube = searchSpace[zobristHash(W, G, O, R, B, E)];
+		std::cout << kube.W - W<<" " << kube.G - G << " " << kube.O - O << " " << kube.R - R << " " << kube.B - B << " " << kube.E- E << std::endl;
+		Sleep(10);
+		//if (kube.W == W && kube.G == G && kube.O == O && kube.R == R && kube.B == B && kube.E == E) {
+			collisions++;
+		//}
 	}
-	Cube cube = { W,G,O,R,B,E };
-	searchSpace.insert({ zobristHash(W,G,O,R,B,E),cube });
+	else {
+		Cube cube = { W,G,O,R,B,E };
+		searchSpace.insert({ zobristHash(W,G,O,R,B,E),cube });
+	}
 	if (depth <= 0) {
 		return;
 	}
 	for (int i = 1; i <= 12; i++) {
-		mapSearchSpace(searchSpace, depth - 1, i, W, G, O, R, B, E);
+		if (i == index || i%6!=index%6) {
+			mapSearchSpace(searchSpace, startingDepth, depth - 1, move, i, W, G, O, R, B, E);
+		}
 	}
 }
 
+/*void searchSearchSpace(std::unordered_map<uint64_t, Cube>& searchSpace, int startingDepth, int depth, int index, uint64_t move, uint64_t W, uint64_t G, uint64_t O, uint64_t R, uint64_t B, uint64_t E) {
+	int size = (startingDepth - depth);
+	if (index != 0) {
+		moves[index](W, G, O, R, B, E);
+		move &= ~(static_cast<uint64_t>(0b1111) << (4 * size));
+		move |= (static_cast<uint64_t>(index) << (4 * size));
+
+	}
+	if (searchSpace.find(zobristHash(W, G, O, R, B, E)) != searchSpace.end()) {
+		std::cout << "LETS GOOOO" << std::endl;
+		auto it = searchSpace.find(zobristHash(W, G, O, R, B, E));
+		Cube cubeTest = it->second;
+		uint64_t movePrev = cubeTest.move;
+		for (int i = 10; i > 0; i--) {
+			std::cout << ((movePrev >> (4 * i)) & 0b1111) << std::endl;
+		}
+		Sleep(10000);
+		return;
+	}
+	Cube cube = { W,G,O,R,B,E };
+	//searchSpace.insert({ zobristHash(W,G,O,R,B,E),cube });
+	if (depth <= 0) {
+		return;
+	}
+	for (int i = 1; i <= 12; i++) {
+		searchSearchSpace(searchSpace, startingDepth, depth - 1, i, move, W, G, O, R, B, E);
+	}
+}*/
+
 int main()
 {
+	auto start = std::chrono::high_resolution_clock::now();
 	initializeZobristTable();
 	float px = 0;
 	float py = 0;
@@ -1111,15 +1112,39 @@ int main()
 	std::vector<int> cube = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 	fuseCube(cube, W, G, R, B, O, E);
 	std::unordered_map< uint64_t,Cube> searchSpace;
-	mapSearchSpace(searchSpace,10,0,W,G,R,B,O,E);
-	while (true) {
-		std::cout << px << " " << py << " " << pz<<" "<<x_rot<<" "<<y_rot << std::endl;
+	Cube test = { W,G,R,B,O,E };
+	searchSpace.insert({ zobristHash(W,G,R,B,O,E), test });
+	int depth = 7;
+//#pragma omp parallel for
+	for (int i = 1; i <= 12; i++) {
+		mapSearchSpace(searchSpace, depth-1, depth-1, 0, i, W, G, R, B, O, E);
+	}
+	/*while (true) {
+		uint64_t move = 0;
+		//std::cout << px << " " << py << " " << pz<<" "<<x_rot<<" "<<y_rot << std::endl;
 		controls(x_rot, y_rot, px, py, pz);
 		cubeControls(W, G, R, B, O, E);
 		fuseCube(cube, W, G, R, B, O, E);
 		update_screen(screen, cube, px, py, pz, x_rot, y_rot);
 		draw_screen(screen);
 		fill_screen(screen);
-	}
+		if (GetAsyncKeyState('Q') & 0x8000) { // Turn left
+			for (int i = 0; i < 7; i++) {
+				std::cout << i << std::endl;
+				searchSearchSpace(searchSpace, i, i, 0, move, W, G, R, B, O, E);
+				Sleep(100);
+			}
+		}
+	}*/
+
+	// End measuring time
+	auto end = std::chrono::high_resolution_clock::now();
+
+	// Calculate duration
+	std::chrono::duration<double> elapsed = end - start;
+
+	// Output the time taken
+	std::cout << "Time taken: " << elapsed.count() << " seconds" << std::endl;
+	std::cout << elements << " " << collisions << std::endl;
 }
 
